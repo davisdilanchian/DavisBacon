@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DavisBacon — typing trainer</title>
+  <meta name="description" content="A typing trainer that finds your habitual mistakes and rewrites the drills to target them.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>DavisBacon</h1>
+    <div class="stats">
+      <div><span id="stat-wpm">–</span><label>wpm</label></div>
+      <div><span id="stat-acc">–</span><label>accuracy</label></div>
+      <div><span id="stat-count">0</span><label>sentences</label></div>
+    </div>
+  </header>
+
+  <main>
+    <section class="trainer">
+      <div id="focus" class="focus"></div>
+      <div id="sentence" class="sentence" aria-label="Sentence to type"></div>
+      <div id="last" class="last">Start typing. Mistakes stop the cursor until you hit the right key. Esc restarts the sentence.</div>
+    </section>
+
+    <section class="panel">
+      <h2>Transit time</h2>
+      <div id="transit"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Findings</h2>
+        <button id="reset" type="button">Reset all data</button>
+      </div>
+      <p class="hint" id="findings-empty">Nothing yet. Type a few sentences and patterns in your mistakes and pacing will show up here.</p>
+      <ul id="findings" class="findings"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>Error map</h2>
+      <div id="keyboard" class="keyboard"></div>
+      <p class="hint" id="pacing"></p>
+    </section>
+  </main>
+
+  <script src="words.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
