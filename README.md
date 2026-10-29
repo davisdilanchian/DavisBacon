@@ -16,6 +16,8 @@ You type a sentence. A wrong key stops the cursor until you hit the right one, s
 
 **Transit time** is the time between consecutive clean keypresses. It is broken down by movement type (hand switch, same-hand roll, same finger, word start, word end), by hand, and by individual letter pair. Pairs that are consistently slower than your usual pace become findings too. The panel also turns the biggest time sinks into specific advice.
 
+**Rep drills**: when a slow transition is found, the next line repeats that pair 10 times (bare pairs first, then real words). Each rep is timed, and the line ends by showing your first reps vs your last. Slow pairs come back for another rep line every few lines, and any row in the slowest-transitions table can be drilled on demand.
+
 **Findings** go through three states:
 
 1. **watching**: seen, but not often enough to act on.
