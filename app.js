@@ -46,6 +46,7 @@ function freshData() {
     pace: { LL: [], RR: [], LR: [], RL: [] },
     transit: {},
     recovery: [],
+    repLog: {},
     history: [],
   };
 }
@@ -94,7 +95,7 @@ function baseline(a, b) {
 
 // What kind of movement a transition between two keys is; drives the transit breakdown.
 const TRANSIT_TYPES = {
-  alt: "Hand switch (left↔right)",
+  alt: "Hand switch (left/right)",
   sameHand: "Same hand, different finger",
   sameFinger: "Same finger, different key",
   repeat: "Same key twice",
@@ -173,6 +174,7 @@ function getFinding(kind, a, b) {
 
 function activate(f) {
   if (f.status !== "active") sentenceEvents.push({ type: "new", f });
+  if (f.kind === "slow") queueRep(f.a, f.b);
   f.status = "active";
   f.window = [];
   f.exposures = 0;
@@ -285,6 +287,31 @@ function fillerWord() {
   return pick(WORDS);
 }
 
+// ---------- Rep drills ----------
+// A whole line spent on one slow transition, repeated REPS times, with every rep timed.
+
+const REPS = 10;
+let repQueue = [];
+let linesSinceRep = 0;
+
+function queueRep(a, b) {
+  if (!repQueue.some((r) => r.a === a && r.b === b)) repQueue.push({ a, b });
+}
+
+function repLine({ a, b }) {
+  if (b === " ") {
+    const enders = wordsWith((w) => w.endsWith(a), `end:${a}`);
+    return Array.from({ length: REPS + 1 }, () => pick(enders.length ? enders : WORDS)).join(" ");
+  }
+  if (a === " ") {
+    const starters = wordsWith((w) => w.startsWith(b), `start:${b}`);
+    return Array.from({ length: REPS + 1 }, () => pick(starters.length ? starters : WORDS)).join(" ");
+  }
+  const inside = wordsWith((w) => w.includes(a + b), `in:${a + b}`);
+  // First half bare pairs to isolate the motion, second half real words to put it back in context.
+  return Array.from({ length: REPS }, (_, k) => (k < REPS / 2 || !inside.length ? a + b : pick(inside))).join(" ");
+}
+
 function pickFocus(findings, n) {
   const pool = [...findings];
   const out = [];
@@ -299,6 +326,17 @@ function pickFocus(findings, n) {
 
 function makeSentence() {
   const active = activeFindings();
+  const slow = active.filter((f) => f.kind === "slow");
+  if (!repQueue.length && slow.length && linesSinceRep >= 3) {
+    const f = pickFocus(slow, 1)[0];
+    queueRep(f.a, f.b);
+  }
+  if (repQueue.length) {
+    const rep = repQueue.shift();
+    linesSinceRep = 0;
+    return { text: repLine(rep), focus: [], rep };
+  }
+  linesSinceRep++;
   if (!active.length) {
     let text;
     do { text = pick(STARTER_SENTENCES); } while (text === current?.text && STARTER_SENTENCES.length > 1);
@@ -329,6 +367,7 @@ function startSentence(sentence) {
     startTime: null,
     lastTime: null,
     errors: 0,
+    repTimes: [],
   };
   sentenceEvents = [];
   renderSentence();
@@ -337,7 +376,7 @@ function startSentence(sentence) {
 
 function onKey(e) {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  if (e.key === "Escape") { startSentence({ text: current.text, focus: current.focus }); return; }
+  if (e.key === "Escape") { startSentence({ text: current.text, focus: current.focus, rep: current.rep }); return; }
   if (e.key.length !== 1) return;
   e.preventDefault();
 
@@ -354,6 +393,7 @@ function onKey(e) {
       let dt = s.prevClean && s.lastTime !== null ? now - s.lastTime : null;
       if (dt !== null && dt > 1500) dt = null;
       if (dt !== null) recordInterval(s.text[s.pos - 1], exp, dt);
+      if (dt !== null && s.rep && s.text[s.pos - 1] === s.rep.a && exp === s.rep.b) s.repTimes.push(dt);
       recordExposure(s.text, s.pos, ch, false, dt);
       s.prevClean = true;
     } else {
@@ -402,12 +442,20 @@ function finishSentence(now) {
   detectSlowBigrams();
   save();
 
-  const parts = [`<b>${Math.round(wpm)} wpm</b>`, `<b>${Math.round(acc * 100)}%</b> accuracy`];
+  const parts = [`${Math.round(wpm)} wpm, ${Math.round(acc * 100)}%`];
+  if (s.rep && s.repTimes.length >= 4) {
+    const k = Math.min(3, Math.floor(s.repTimes.length / 2));
+    const first = Math.round(avg(s.repTimes.slice(0, k)));
+    const last = Math.round(avg(s.repTimes.slice(-k)));
+    pushCapped((data.repLog[s.rep.a + s.rep.b] ||= []), Math.round(avg(s.repTimes)), 12);
+    save();
+    parts.push(`${show(s.rep.a)}→${show(s.rep.b)} reps went ${first} → ${last} ms ${last < first ? "— faster!" : "— keep at it"}`);
+  }
   const added = sentenceEvents.filter((e) => e.type === "new");
   const fixed = sentenceEvents.filter((e) => e.type === "fixed");
-  if (added.length) parts.push(`now targeting: ${added.map((e) => chipText(e.f)).join(", ")}`);
+  if (added.length) parts.push(`new target: ${added.map((e) => chipText(e.f)).join(", ")}`);
   if (fixed.length) parts.push(`fixed: ${fixed.map((e) => chipText(e.f)).join(", ")} ✓`);
-  document.getElementById("last").innerHTML = parts.join(" · ");
+  $("last").textContent = parts.join("  ·  ");
 
   renderStats();
   renderFindings();
@@ -437,17 +485,20 @@ function renderSentence() {
 }
 
 function renderFocus() {
-  $("focus").innerHTML = current.focus.length
-    ? `<span class="chip" style="background:none;border-color:transparent;color:var(--dim)">drilling</span>` +
-      current.focus.map((f) => `<span class="chip">${esc(chipText(f))}</span>`).join("")
-    : "";
+  const { rep, focus } = current;
+  $("focus").textContent = rep
+    ? `rep drill: ${show(rep.a)}→${show(rep.b)} ×${REPS} — smooth first, then fast`
+    : focus.length ? `drilling → ${focus.map(chipText).join(",  ")}` : "";
 }
 
 function renderStats() {
   const recent = data.history.slice(-10);
   $("stat-wpm").textContent = recent.length ? Math.round(avg(recent.map((h) => h.wpm))) : "–";
   $("stat-acc").textContent = recent.length ? `${Math.round(avg(recent.map((h) => h.acc)) * 100)}%` : "–";
-  $("stat-count").textContent = data.history.length;
+  $("stat-count").textContent = data.history.length + 1;
+  const date = (t) => new Date(t).toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "2-digit" });
+  $("basic-date").textContent = date(data.history[0]?.at ?? Date.now());
+  $("changed-date").textContent = date(data.history.at(-1)?.at ?? Date.now());
 }
 
 function renderFindings() {
@@ -460,24 +511,27 @@ function renderFindings() {
     .map((f) => {
       const w = WINDOW(f.kind);
       const clean = f.window.filter((v) => !v).length;
-      let badge, meta, progress;
+      // Recent reps as a tally: "/" clean, "x" missed, "." not yet done.
+      const tally = f.window.map((v) => (v ? "x" : "/")).join("").padEnd(w, ".");
+      let badge, meta;
       if (f.status === "active") {
-        badge = "targeting";
-        meta = `seen ${f.count}× · ${clean}/${w} clean recently`;
-        progress = Math.min(1, f.exposures / MIN_EXPOSURES(f.kind)) * (clean / w);
+        badge = "drilling";
+        meta = `SEEN ${f.count}X - RECENT [${tally}] ${clean}/${w} CLEAN`;
       } else if (f.status === "fixed") {
         badge = "fixed ✓";
-        meta = `seen ${f.count}× · held up over ${f.exposures} reps`;
-        progress = 1;
+        meta = `SEEN ${f.count}X - HELD UP OVER ${f.exposures} REPS`;
       } else {
         badge = "watching";
-        meta = `seen ${f.count}× · targets after ${ACTIVATE_AT[f.kind]}`;
-        progress = f.count / ACTIVATE_AT[f.kind];
+        meta = `SEEN ${f.count}X - DRILLED AFTER ${ACTIVATE_AT[f.kind]}`;
       }
+      const reps = data.repLog[f.a + f.b];
+      const repRow = f.kind === "slow" && reps?.length
+        ? `<div class="reps">REP DRILL AVG MS: ${reps.map((ms, k) => (k === reps.length - 1 ? `<i>${ms}</i>` : ms)).join(" - ")}</div>`
+        : "";
       return `<li class="finding ${f.status}">
         <div><div class="label">${label(f)}</div><div class="meta">${meta}</div></div>
         <div class="badge">${badge}</div>
-        <div class="bar"><i style="width:${Math.round(progress * 100)}%"></i></div>
+        ${repRow}
       </li>`;
     })
     .join("");
@@ -490,19 +544,23 @@ function renderKeyboard() {
       const total = st ? st.hits + st.misses : 0;
       const rate = total ? st.misses / total : 0;
       const heat = Math.min(1, rate * 6);
-      const bg = total ? `rgba(239, 91, 91, ${0.08 + heat * 0.72})` : "var(--bg)";
       const tip = total ? `${ch}: ${st.misses} misses / ${total} (${Math.round(rate * 100)}%)` : `${ch}: no data`;
-      return `<div class="key ${KEYS[ch].hand}" style="background:${bg}" title="${esc(tip)}">${esc(ch)}${st?.misses ? `<small>${st.misses}</small>` : ""}</div>`;
+      const ring = st?.misses ? `<span class="ring" style="opacity:${(0.25 + heat * 0.75).toFixed(2)}"></span><small>${st.misses}</small>` : "";
+      return `<div class="key ${KEYS[ch].hand}" title="${esc(tip)}">${esc(ch)}${ring}</div>`;
     }).join("");
-    return `<div class="krow" style="padding-left:${ROW_OFFSET[r] * 50}px">${keys}</div>`;
+    return `<div class="krow" style="padding-left:${ROW_OFFSET[r] * 42}px">${keys}</div>`;
   }).join("");
 
+  const stats = Object.values(data.keyStats);
+  const pad = (n) => String(n).padStart(5, "0");
+  $("card-hits").textContent = pad(stats.reduce((s, k) => s + k.hits, 0));
+  $("card-misses").textContent = pad(stats.reduce((s, k) => s + k.misses, 0));
+
   const p = data.pace;
-  const ms = (arr) => (arr.length >= 5 ? `${Math.round(avg(arr))} ms` : "–");
-  $("pacing").innerHTML = data.intervals.length >= 20
-    ? `Average time per transition — left→left ${ms(p.LL)} · right→right ${ms(p.RR)} · left→right ${ms(p.LR)} · right→left ${ms(p.RL)}. ` +
-      `Blue underline = left hand, purple = right.`
-    : "Blue underline = left hand, purple = right. Pacing between hands shows up after a few sentences.";
+  const ms = (arr) => (arr.length >= 5 ? `${Math.round(avg(arr))} MS` : "--");
+  $("pacing").textContent = data.intervals.length >= 20
+    ? `HAND PACE: L-L ${ms(p.LL)}, R-R ${ms(p.RR)}, L-R ${ms(p.LR)}, R-L ${ms(p.RL)}. SOLID UNDERLINE = LEFT HAND, DASHED = RIGHT.`
+    : "SOLID UNDERLINE = LEFT HAND, DASHED = RIGHT. HAND PACE APPEARS AFTER A FEW LINES.";
 }
 
 function transitTips(med) {
@@ -552,7 +610,7 @@ function renderTransit() {
   const el = $("transit");
   const all = [...data.intervals, ...data.spaceIntervals];
   if (all.length < 40) {
-    el.innerHTML = `<p class="hint">Type a few sentences and this will measure the time between every pair of keypresses.</p>`;
+    el.innerHTML = `<p class="typed dim">NO DATA. TYPE A FEW LINES - THE TIME BETWEEN EVERY PAIR OF KEYPRESSES IS LOGGED HERE.</p>`;
     return;
   }
   const med = median(all);
@@ -561,11 +619,11 @@ function renderTransit() {
   const best = Math.max(...data.history.map((h) => h.wpm));
 
   const tiles = [
-    [`${Math.round(med)} ms`, "typical time between keys"],
-    [`${Math.round(12000 / med)} wpm`, "speed if every key were that fast"],
-    [`±${Math.round(sd)} ms`, "rhythm spread (lower is steadier)"],
-    [data.recovery.length ? `${Math.round(median(data.recovery))} ms` : "–", "cost to fix a mistake"],
-    [`${Math.round(best)} wpm`, "best sentence"],
+    ["TYPICAL GAP", `${Math.round(med)} MS`],
+    ["WPM AT THAT GAP", Math.round(12000 / med)],
+    ["RHYTHM SPREAD", `±${Math.round(sd)} MS`],
+    ["COST PER MISTAKE", data.recovery.length ? `${Math.round(median(data.recovery))} MS` : "--"],
+    ["BEST LINE", `${Math.round(best)} WPM`],
   ];
 
   const types = Object.entries(TRANSIT_TYPES)
@@ -587,25 +645,35 @@ function renderTransit() {
   const tips = transitTips(med);
 
   el.innerHTML = `
-    <div class="tiles">${tiles.map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join("")}</div>
-    <div class="cols">
-      <div>
-        <h3>By movement</h3>
-        ${types.map((r) => `<div class="trow"><span>${r.name}</span><span class="tbar"><i style="width:${(r.ms / maxMs) * 100}%"></i></span><b>${Math.round(r.ms)} ms</b></div>`).join("")}
-      </div>
-      <div>
-        <h3>Slowest transitions</h3>
-        ${slowest.length
-          ? slowest.map((r) => `<div class="trow"><span>${code(r.bg[0])}→${code(r.bg[1])} <small>${r.type}</small></span><b>${Math.round(r.ms)} ms <small>+${Math.round(r.excess)}</small></b></div>`).join("")
-          : `<p class="hint">No transition stands out yet.</p>`}
-      </div>
-    </div>
-    ${tips.length ? `<h3>How to get faster</h3><ul class="tips">${tips.map((t) => `<li>${t}</li>`).join("")}</ul>` : ""}`;
+    <div class="readout-grid">${tiles.map(([l, v]) => `<div class="box">${l}<b>${v}</b></div>`).join("")}</div>
+    <h3>BY MOVEMENT</h3>
+    <table class="ruled">
+      <tr><th>MOVEMENT</th><th>AVG</th><th></th></tr>
+      ${types.map((r) => `<tr><td>${r.name.toUpperCase()}</td><td class="num">${Math.round(r.ms)} MS</td>
+        <td><span class="ticks" style="width:${Math.round((r.ms / maxMs) * 100)}%"></span></td></tr>`).join("")}
+    </table>
+    <h3>SLOWEST TRANSITIONS</h3>
+    ${slowest.length ? `<table class="ruled">
+      <tr><th>PAIR</th><th>MOVEMENT</th><th>AVG</th><th>OVER</th><th>DRILL</th></tr>
+      ${slowest.map((r) => `<tr><td>${code(r.bg[0])} → ${code(r.bg[1])}</td><td>${r.type.toUpperCase()}</td>
+        <td class="num">${Math.round(r.ms)} MS</td><td class="num">+${Math.round(r.excess)}</td>
+        <td><button class="drill-btn" data-a="${esc(r.bg[0])}" data-b="${esc(r.bg[1])}">×${REPS} NOW</button></td></tr>`).join("")}
+    </table>` : `<p class="typed dim">NO TRANSITION STANDS OUT YET.</p>`}
+    ${tips.length ? `<div class="notes"><h3>how to get faster</h3><ol>${tips.map((t) => `<li>${t}</li>`).join("")}</ol></div>` : ""}`;
 }
 
 // ---------- Boot ----------
 
 document.addEventListener("keydown", onKey);
+$("transit").addEventListener("click", (e) => {
+  const btn = e.target.closest(".drill-btn");
+  if (!btn) return;
+  btn.blur();
+  repQueue = repQueue.filter((r) => r.a !== btn.dataset.a || r.b !== btn.dataset.b);
+  repQueue.unshift({ a: btn.dataset.a, b: btn.dataset.b });
+  startSentence(makeSentence());
+  $("drill").scrollIntoView({ behavior: "smooth" });
+});
 $("reset").addEventListener("click", (e) => {
   e.currentTarget.blur();
   if (!confirm("Clear all findings and stats?")) return;

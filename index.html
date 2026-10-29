@@ -5,45 +5,76 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DavisBacon — typing trainer</title>
   <meta name="description" content="A typing trainer that finds your habitual mistakes and rewrites the drills to target them.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400&family=Nanum+Pen+Script&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
-    <h1>DavisBacon</h1>
-    <div class="stats">
-      <div><span id="stat-wpm">–</span><label>wpm</label></div>
-      <div><span id="stat-acc">–</span><label>accuracy</label></div>
-      <div><span id="stat-count">0</span><label>sentences</label></div>
+  <nav class="tabs">
+    <a href="#drill">Drill</a>
+    <a href="#transit-sheet">Transit</a>
+    <a href="#findings-sheet">Findings</a>
+    <a href="#map">Error map</a>
+  </nav>
+
+  <article class="sheet" id="drill">
+    <div class="holes" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="spine" aria-hidden="true">Basic Date <u id="basic-date"></u> Changed <u id="changed-date"></u></div>
+    <header class="sheet-head">
+      <span>DAVISBACON TYPING TIMELINE BOOK</span>
+      <span>PAGE <span id="stat-count">0</span></span>
+    </header>
+
+    <div class="readouts">
+      <div class="box">WPM <b id="stat-wpm">–</b></div>
+      <div class="box">ACC <b id="stat-acc">–</b></div>
+      <span class="readout-note">avg of last 10 lines</span>
     </div>
-  </header>
 
-  <main>
-    <section class="trainer">
-      <div id="focus" class="focus"></div>
-      <div id="sentence" class="sentence" aria-label="Sentence to type"></div>
-      <div id="last" class="last">Start typing. Mistakes stop the cursor until you hit the right key. Esc restarts the sentence.</div>
-    </section>
+    <h2 class="step"><span>1</span>DRILL</h2>
+    <div id="focus" class="pen red focus"></div>
+    <div id="sentence" class="sentence" aria-label="Sentence to type"></div>
+    <div id="last" class="pen blue last"></div>
 
-    <section class="panel">
-      <h2>Transit time</h2>
-      <div id="transit"></div>
-    </section>
+    <ol class="instr">
+      <li>TYPE LINE AS SHOWN - WRONG KEY HOLDS CURSOR</li>
+      <li>ESC - RESTART LINE</li>
+    </ol>
+  </article>
 
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Findings</h2>
-        <button id="reset" type="button">Reset all data</button>
+  <article class="sheet" id="transit-sheet">
+    <div class="holes" aria-hidden="true"><i></i><i></i><i></i></div>
+    <header class="sheet-head">
+      <span>TRANSIT TIME BETWEEN KEYS</span>
+      <span>SHEET 2</span>
+    </header>
+    <div id="transit"></div>
+  </article>
+
+  <article class="sheet" id="findings-sheet">
+    <div class="holes" aria-hidden="true"><i></i><i></i><i></i></div>
+    <header class="sheet-head">
+      <span>FINDINGS CHECKLIST</span>
+      <span>SHEET 3</span>
+    </header>
+    <p class="typed dim" id="findings-empty">NO ENTRIES. TYPE A FEW LINES - PATTERNS IN MISTAKES AND PACING WILL BE LOGGED HERE.</p>
+    <ol id="findings" class="findings"></ol>
+    <button id="reset" type="button" class="stamp">VOID ALL DATA</button>
+  </article>
+
+  <article class="card" id="map">
+    <div class="card-head">
+      <span>652.3</span>
+      <div>
+        <div>ERRORS BY KEY</div>
+        <div class="dim">Red rings = misses. Darker ring, more misses.</div>
       </div>
-      <p class="hint" id="findings-empty">Nothing yet. Type a few sentences and patterns in your mistakes and pacing will show up here.</p>
-      <ul id="findings" class="findings"></ul>
-    </section>
-
-    <section class="panel">
-      <h2>Error map</h2>
-      <div id="keyboard" class="keyboard"></div>
-      <p class="hint" id="pacing"></p>
-    </section>
-  </main>
+    </div>
+    <div id="keyboard" class="keyboard"></div>
+    <p class="typed small" id="pacing"></p>
+    <div class="card-foot"><span id="card-hits">00000</span><span id="card-misses">00000</span><span class="hole" aria-hidden="true"></span><span>DAVISBACON</span></div>
+  </article>
 
   <script src="words.js"></script>
   <script src="app.js"></script>
